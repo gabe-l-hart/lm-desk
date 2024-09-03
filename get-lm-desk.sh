@@ -584,6 +584,50 @@ function configure_continue {
     fi
 }
 
+#----
+# Install ollama-bar if on a supported platform
+#----
+function install_ollama_bar {
+    if [ "$OS" != "Darwin" ]
+    then
+        fail "Ollama-bar only supported on Darwin"
+    fi
+    if [ "$git_bin" == "" ] || [ "$curl_bin" == "" ]
+    then
+        fail "Cannot install ollama-bar without git and curl"
+    fi
+
+    # Set up mambaforge to manage an isolated env
+    # NOTE: It seems that there is no out-of-the-box mamba installer with 3.11
+    #   as the default
+    workdir=$(mktemp -d)
+    cd $workdir
+    artifact="Mambaforge-${OS}-${ARCH}.sh"
+    "$curl_bin" -L https://github.com/conda-forge/miniforge/releases/download/24.3.0-0/$artifact -O
+    mamba_install_dir="$workdir/mamba-temp"
+    bash ./${artifact} -b -p $mamba_install_dir
+
+    # Run the rest in a subshell to avoid contaminating PATH
+    (
+        # Set up an isolated python 3.11 environment
+        export PATH=$mamba_install_dir/bin:$PATH
+        conda create -n ollama-bar-temp python=3.11 -y
+        source activate ollama-bar-temp
+
+        # Get the source code
+        "$git_bin" clone https://github.com/IBM/ollama-bar.git --depth=1 --branch $latest_release
+        cd ollama-bar
+
+        # Install the build tools
+        briefcase_version=$(cat pyproject.toml | grep '"briefcase' | cut -d'"' -f2)
+        pip install "$briefcase_version"
+
+        # Build and install the app
+        ./scripts/build_app.sh
+        ./scripts/install_app.sh
+    )
+}
+
 ## Main ########################################################################
 report_installed
 
@@ -668,5 +712,9 @@ fi
 ################################
 # Install ollama-bar if needed #
 ################################
-# if ! [ -d "/Applications/ollama-bar.app" ]
+if ! [ -d "/Applications/ollama-bar.app" ] && [ "$ollama_bin" != "" ] && yes_no_prompt "Install ollama-bar?"
+then
+    install_ollama_bar
+    report_installed
+fi
 
